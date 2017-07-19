@@ -1,0 +1,66 @@
+bindService    ----- >      ContextWrapper.bindService()
+mBase对象是ContextImpl的实例
+ContextImpl    ----- >      bindService()   ---- >   bindServiceCommon
+private boolean bindServiceCommon(Intent service, ServiceConnection conn, int flags, UserHandle user) {
+        IServiceConnection sd;
+        ...
+        if (mPackageInfo != null) {
+            sd = mPackageInfo.getServiceDispatcher(conn, getOuterContext(),
+                    mMainThread.getHandler(), flags);
+        }
+        ...
+            int res = ActivityManagerNative.getDefault().bindService(
+                mMainThread.getApplicationThread(), getActivityToken(),
+                service, service.resolveTypeIfNeeded(getContentResolver()),
+                sd, flags, user.getIdentifier());
+            if (res < 0) {
+                throw new SecurityException(
+                        "Not allowed to bind to service " + service);
+            }
+            return res != 0;
+}
+
+1st: mPackageInfo对象是LoadedApk对象
+public final IServiceConnection getServiceDispatcher(ServiceConnection c, Context context, Handler handler, int flags) {
+        synchronized (mServices) {
+            LoadedApk.ServiceDispatcher sd = null;
+            ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher> map = mServices.get(context);
+            if (map != null) {
+                sd = map.get(c);
+            }
+            if (sd == null) {
+                sd = new ServiceDispatcher(c, context, handler, flags);
+                if (map == null) {
+                    map = new ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher>();
+                    mServices.put(context, map);
+                }
+                map.put(c, sd);
+            } else {
+                sd.validate(context, handler);
+            }
+            return sd.getIServiceConnection();
+        }
+}
+进一步查看ServiceDispatcher的getIServiceConnection方法。
+IServiceConnection getIServiceConnection() {
+      return mIServiceConnection;
+}
+ServiceDispatcher(ServiceConnection conn, Context context, Handler activityThread, int flags) {
+       mIServiceConnection = new InnerConnection(this);
+       ...
+}
+查看InnerConnection定义
+private static class InnerConnection extends IServiceConnection.Stub {
+        final WeakReference<LoadedApk.ServiceDispatcher> mDispatcher;
+
+        InnerConnection(LoadedApk.ServiceDispatcher sd) {
+             mDispatcher = new WeakReference<LoadedApk.ServiceDispatcher>(sd);
+        }
+
+        public void connected(ComponentName name, IBinder service) throws RemoteException {
+             LoadedApk.ServiceDispatcher sd = mDispatcher.get();
+             if (sd != null) {
+                  sd.connected(name, service);
+             }
+        }
+}
